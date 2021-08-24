@@ -1,0 +1,28 @@
+{
+  "name": "sk-cam",
+  "version": "1.0.0",
+  "description": "ESP32 CAM support",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergei/sk-cam.git"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-cloud"
+  ],
+  "author": "Sergei Podshivalov",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sergei/sk-cam/issues"
+  },
+  "homepage": "https://github.com/sergei/sk-cam#readme",
+  "dependencies": {
+    "glob": "^7.1.7",
+    "moment": "^2.29.1",
+    "request": "^2.88.2"
+  }
+}
