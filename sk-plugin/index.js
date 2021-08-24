@@ -5,6 +5,8 @@ const  fs = require('fs')
 const request = require('request');
 const moment = require('moment');
 const glob = require('glob');
+const s3Uploader = require('./s3_uploader')
+
 const DEFAULT_MAX_PICS = 3
 
 module.exports = function (app) {
@@ -141,9 +143,16 @@ module.exports = function (app) {
     plugin.name = 'ESP32 Cam plugin';
     plugin.description = 'Plugin to support ESP32 Cam';
 
+    let enabled = true;
+    const isEnabled = () => {
+        return enabled;
+    }
+
     plugin.start = function (options, restartPlugin) {
         // Here we put our plugin logic
         app.debug('Plugin starting...');
+        enabled = true
+
         pluginOptions = options
 
         if(  pluginOptions.pictures_dir === undefined || pluginOptions.pictures_dir.trim() === "" ){
@@ -162,11 +171,16 @@ module.exports = function (app) {
         app.registerPutHandler('vessels.self', 'cameras.capture', doCapture)
         app.registerPutHandler('vessels.self', 'cameras.settings', updateCameraSettings)
 
+        const t = app.getSelfPath('uuid').split(':');
+        const myUuid = t[t.length-1]
+        s3Uploader(options, myUuid, pluginOptions.pictures_dir, app.debug, app.error, isEnabled)
+
         app.debug('Plugin started');
     };
 
     plugin.stop = function () {
         // Here we put logic we need when the plugin stops
+        enabled = false
         app.debug('Plugin stopped');
     };
 
