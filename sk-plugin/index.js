@@ -6,6 +6,7 @@ const request = require('request');
 const moment = require('moment');
 const glob = require('glob');
 const s3Uploader = require('./s3_uploader')
+const nmea = require('./nmea.js')
 
 const DEFAULT_MAX_PICS = 3
 
@@ -13,7 +14,10 @@ module.exports = function (app) {
 
     const cameras = {}
     let pluginOptions = {}
-    let cameraSettings = {}
+    let cameraSettings = {
+        framesize: 10,
+        quality: 10
+    }
 
     function get_basename(path) {
         return path.split('/').reverse()[0];
@@ -56,49 +60,87 @@ module.exports = function (app) {
         rotatePictures()
 
         const filePrefix = `cam-${moment().format('YYYY-MM-DD-HH-mm-ss')}`
+
+        snapshots = []
+        Object.keys(cameras).forEach((cam_id) => {
+            const camera = cameras[cam_id]
+            const url = `http://${camera.ip}:${camera.camera_port}/capture`
+            const base_name = `${filePrefix}_${camera.id}.jpg`
+            const filename = `${pluginOptions.pictures_dir}/${base_name}`
+
+            snapshots.push({
+              cam_id: camera.id,
+              filename: base_name
+            })
+
+            console.log(`Requesting ${url} to ${filename} ...`)
+                request.head(url, function(err, res, body){
+                    request(url).pipe(fs.createWriteStream(filename)).on('close', function(){
+                        console.log(`Received ${filename} from ${url}`)
+                    })
+                });
+        })
+
         const metaData = {
             uuid: app.getSelfPath('uuid'),
             environment: app.getSelfPath('environment'),
             navigation: app.getSelfPath('navigation'),
         }
-        const metaFileName = `${pluginOptions.pictures_dir}/${filePrefix}_meta.json`
+
+        const metaFileBaseName = `${filePrefix}_meta.json`
+        const metaFileName = `${pluginOptions.pictures_dir}/${metaFileBaseName}`
 
         fs.writeFile(metaFileName, JSON.stringify(metaData), err => {
             if (err) {
-                app.debug(`Error creating metafile ${metaFileName} ${err}`)
-                return
+              app.debug(`Error creating metafile ${metaFileName} ${err}`)
+              return
             }
             app.debug(`Created metafile ${metaFileName}`)
         })
 
-        Object.keys(cameras).forEach((cam_id) => {
-            const camera = cameras[cam_id]
-            const url = `http://${camera.ip}:${camera.camera_port}/capture`
-            const filename = `${pluginOptions.pictures_dir}/${filePrefix}_${camera.id}.jpg`
+        const sentence = nmea.toSentence([
+          '$POTTO',
+          'CAM',
+          'CAPTURE',
+          metaFileBaseName,
+        ])
+        app.emit('nmea0183out', sentence)
 
-            console.log(`Requesting ${url} to ${filename} ...`)
-            request.head(url, function(err, res, body){
-                request(url).pipe(fs.createWriteStream(filename)).on('close', function(){
-                    console.log(`Received ${filename} from ${url}`)
-                })
-            });
+        app.handleMessage(plugin.id , {
+        updates: [{
+            values: [{
+                path: 'cameras.snapshot',
+                value: {
+                    meta: metaFileBaseName,
+                    snapshots: snapshots
+                }
+              }]
+          }]
         })
 
         return { state: 'COMPLETED', statusCode: 200 };
     }
 
-    function updateCameraSettings(context, path, settings, callback){
-        app.debug('Got camera settings', settings);
-        cameraSettings = settings
-        return { state: 'COMPLETED', statusCode: 200 };
+    // This function updates the connected camera settings
+    function configureCamera(camera) {
+        Object.keys(cameraSettings).forEach((param) => {
+            const url =  `http://${camera.ip}:${camera.camera_port}/control?var=${param}&val=${cameraSettings[param]}`
+            app.debug(`Sending ${url}`)
+            request(url, function (error, response, body) {
+                if(error) app.error('error:', error);
+                if(response) app.debug('statusCode:', response.statusCode);
+            });
+        })
     }
 
+    // Update the SK path "cameras" with the list of the connected cameras
     function postCamerasInfo(){
-
         const camera_list = []
         Object.keys(cameras).forEach((cam_id) => {
             camera_list.push({
                 id: cam_id,
+                rssi: cameras[cam_id].rssi,
+                uptime: cameras[cam_id].uptime,
                 url: `http://${cameras[cam_id].ip}:${cameras[cam_id].camera_port}`,
                 stream: `http://${cameras[cam_id].ip}:${cameras[cam_id].stream_port}`,
             })
@@ -118,16 +160,42 @@ module.exports = function (app) {
         })
     }
 
-    function updateCameras(context, path, info, callback) {
+    // Called when SK server client sends the PUT request with new cameras settings
+    function updateCameraSettings(context, path, settings, callback) {
+        app.debug('Got cameras settings', settings);
+        cameraSettings = settings
+        Object.keys(cameras).forEach((cam_id) => {
+            configureCamera(cameras[cam_id])
+        })
+        return { state: 'COMPLETED', statusCode: 200 };
+    }
 
+    /// Called when we received the PUT request from the connected camera
+    function updateCameraList(context, path, info, callback) {
         if ( 'id' in info && 'ip' in info && 'camera_port' in info && 'stream_port' in info) {
-            cameras[info.id] = {
+            let camera = {
                 id: info.id,
                 ip: info.ip,
+                rssi: info.rssi,
+                uptime: info.uptime,
                 camera_port: info.camera_port,
                 stream_port: info.stream_port,
+            };
+
+            let need_to_configure = false
+            // Check if new camera got connected or existing camera gor reset
+            if ( !(info.id in cameras) ){
+                app.debug('New camera got connected')
+                need_to_configure = true
+            } else if ( info.uptime < cameras[info.id].uptime ) {
+                app.debug('Camera was reset')
+                need_to_configure = true
             }
+            cameras[info.id] = info
             app.debug('Got camera update', cameras);
+            if ( need_to_configure ){
+                configureCamera(info)
+            }
             postCamerasInfo()
             return { state: 'COMPLETED', statusCode: 200 };
         }else{
@@ -167,13 +235,20 @@ module.exports = function (app) {
             fs.mkdirSync(pluginOptions.pictures_dir);
         }
 
-        app.registerPutHandler('vessels.self', 'camera.info', updateCameras)
+        const uploadEnabled = pluginOptions.aws_s3_bucket_name !== undefined
+
+        app.registerPutHandler('vessels.self', 'camera.info', updateCameraList)
         app.registerPutHandler('vessels.self', 'cameras.capture', doCapture)
         app.registerPutHandler('vessels.self', 'cameras.settings', updateCameraSettings)
 
-        const t = app.getSelfPath('uuid').split(':');
-        const myUuid = t[t.length-1]
-        s3Uploader(options, myUuid, pluginOptions.pictures_dir, app.debug, app.error, isEnabled)
+        if ( uploadEnabled ) {
+          app.debug('Upload enabled');
+          const t = app.getSelfPath('uuid').split(':');
+          const myUuid = t[t.length - 1]
+          s3Uploader(options, myUuid, pluginOptions.pictures_dir, app.debug, app.error, isEnabled)
+        }else{
+          app.debug('Upload is disabled');
+        }
 
         app.debug('Plugin started');
     };
