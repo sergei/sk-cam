@@ -7,6 +7,7 @@ const moment = require('moment');
 const glob = require('glob');
 const s3Uploader = require('./s3_uploader')
 const nmea = require('./nmea.js')
+const path = require("path");
 
 const DEFAULT_MAX_PICS = 3
 
@@ -55,8 +56,7 @@ module.exports = function (app) {
         })
     }
 
-    function doCapture(context, path, params, callback){
-        app.debug('Got camera capture request', params);
+    function takeCameraSnapshot() {
         rotatePictures()
 
         const filePrefix = `cam-${moment().format('YYYY-MM-DD-HH-mm-ss')}`
@@ -69,16 +69,16 @@ module.exports = function (app) {
             const filename = `${pluginOptions.pictures_dir}/${base_name}`
 
             snapshots.push({
-              cam_id: camera.id,
-              filename: base_name
+                cam_id: camera.id,
+                filename: base_name
             })
 
             console.log(`Requesting ${url} to ${filename} ...`)
-                request.head(url, function(err, res, body){
-                    request(url).pipe(fs.createWriteStream(filename)).on('close', function(){
-                        console.log(`Received ${filename} from ${url}`)
-                    })
-                });
+            request.head(url, function (err, res, body) {
+                request(url).pipe(fs.createWriteStream(filename)).on('close', function () {
+                    console.log(`Received ${filename} from ${url}`)
+                })
+            });
         })
 
         const metaData = {
@@ -92,31 +92,72 @@ module.exports = function (app) {
 
         fs.writeFile(metaFileName, JSON.stringify(metaData), err => {
             if (err) {
-              app.debug(`Error creating metafile ${metaFileName} ${err}`)
-              return
+                app.debug(`Error creating metafile ${metaFileName} ${err}`)
+                return
             }
             app.debug(`Created metafile ${metaFileName}`)
         })
 
         const sentence = nmea.toSentence([
-          '$POTTO',
-          'CAM',
-          'CAPTURE',
-          metaFileBaseName,
+            '$POTTO',
+            'CAM',
+            'CAPTURE',
+            metaFileBaseName,
         ])
         app.emit('nmea0183out', sentence)
 
-        app.handleMessage(plugin.id , {
-        updates: [{
-            values: [{
-                path: 'cameras.snapshot',
-                value: {
-                    meta: metaFileBaseName,
-                    snapshots: snapshots
-                }
-              }]
-          }]
+        app.handleMessage(plugin.id, {
+            updates: [{
+                values: [{
+                    path: 'cameras.snapshot',
+                    value: {
+                        meta: metaFileBaseName,
+                        snapshots: snapshots
+                    }
+                }]
+            }]
         })
+    }
+
+    // Client requested snapshot(s)
+    let snapshotTimer = null
+    let boatSpeedThreshold = 0  // Only take screenshots if boat moving faster than specified value
+    let currentBoatSpeed = 0;
+
+    function takeConditionalSnapShot(){
+        if( currentBoatSpeed >= boatSpeedThreshold ){
+            takeCameraSnapshot()
+        }else{
+            app.debug(`Skip snapshot since ${currentBoatSpeed} < ${boatSpeedThreshold}`)
+        }
+    }
+
+    function processDelta(u) {
+        u.values.forEach(value => {
+            if( value.path === 'navigation.speedOverGround') {
+                currentBoatSpeed = value.value
+            }
+        })
+    }
+
+    function doCapture(context, path, params, callback){
+        app.debug('Got camera capture request', params);
+        if ('type' in params && params.type === 'periodic') {
+            if( params.interval > 0 ){
+                if( 'min_sog' in params)
+                    boatSpeedThreshold = params.min_sog * 1852 / 3600.  // Convert KTS to m/s
+                else
+                    boatSpeedThreshold = 0
+                snapshotTimer = setInterval(takeConditionalSnapShot, params.interval * 1000)
+            }
+            else if( params.interval === 0 && snapshotTimer){
+                app.debug('Stop periodic snapshots')
+                clearInterval(snapshotTimer)
+                snapshotTimer = null
+            }
+        } else { // Do just single snapshot
+            takeCameraSnapshot();
+        }
 
         return { state: 'COMPLETED', statusCode: 200 };
     }
@@ -204,6 +245,9 @@ module.exports = function (app) {
         }
     }
 
+    const isEnabled = () => {
+        return enabled;
+    }
 
     const plugin = {};
 
@@ -212,9 +256,7 @@ module.exports = function (app) {
     plugin.description = 'Plugin to support ESP32 Cam';
 
     let enabled = true;
-    const isEnabled = () => {
-        return enabled;
-    }
+    let unsubscribes = []
 
     plugin.start = function (options, restartPlugin) {
         // Here we put our plugin logic
@@ -235,33 +277,82 @@ module.exports = function (app) {
             fs.mkdirSync(pluginOptions.pictures_dir);
         }
 
-        const uploadEnabled = pluginOptions.aws_s3_bucket_name !== undefined
+        // Configure PUT paths
 
+        // Inform plugin about connected camera
         app.registerPutHandler('vessels.self', 'camera.info', updateCameraList)
-        app.registerPutHandler('vessels.self', 'cameras.capture', doCapture)
+
+        // Set camera capture settings
         app.registerPutHandler('vessels.self', 'cameras.settings', updateCameraSettings)
 
-        if ( uploadEnabled ) {
-          app.debug('Upload enabled');
+        // Request capture
+        app.registerPutHandler('vessels.self', 'cameras.capture', doCapture)
+
+        // Mount the file upload routes
+
+        // Get files list
+        app.get('/sk-cam', function(req, res, next) {
+            fs.readdir(pluginOptions.pictures_dir, (err, files) => {
+                if (err) {
+                    res.status(500)
+                    res.send('Error reading pictures list')
+                }else {
+                    res.type('json')
+                    res.json({files:files})
+                }
+            })
+        })
+
+        // Download individual file
+        app.get('/sk-cam/:filename', function(req, res, next) {
+            const name = path.join(pluginOptions.pictures_dir, req.params.filename)
+            res.sendFile(name)
+        })
+
+        if ( pluginOptions.enable_aws_s3_upload ) {
+          app.debug('AWS S3 upload enabled');
           const t = app.getSelfPath('uuid').split(':');
           const myUuid = t[t.length - 1]
           s3Uploader(options, myUuid, pluginOptions.pictures_dir, app.debug, app.error, isEnabled)
         }else{
-          app.debug('Upload is disabled');
+          app.debug('AWS S3 upload is disabled');
         }
 
-        app.debug('Plugin started');
-    };
+        let localSubscription = {
+            context: '*', // Get data for all contexts
+            subscribe: [{
+                path: 'navigation.speedOverGround',
+                period: 1000
+            }]
+        }
+
+        app.subscriptionmanager.subscribe(
+            localSubscription,
+            unsubscribes,
+            subscriptionError => {
+                app.error('Error:' + subscriptionError);
+            },
+            delta => {
+                delta.updates.forEach(u => {
+                    processDelta(u);
+                })
+            }
+        )
+
+        app.debug('Plugin started')
+    }
 
     plugin.stop = function () {
         // Here we put logic we need when the plugin stops
         enabled = false
+        unsubscribes.forEach(f => f());
+        unsubscribes = [];
         app.debug('Plugin stopped');
     };
 
     plugin.schema = {
         type: 'object',
-        required: ['aws_s3_bucket_name', 'aws_region' ,'aws_access_key_id', 'aws_secret_access_key'],
+        required: [],
         properties: {
             pictures_dir: {
                 type: 'string',
@@ -272,6 +363,13 @@ module.exports = function (app) {
                 title: 'Maximum number of pictures to keep',
                 default: DEFAULT_MAX_PICS
             },
+
+            enable_aws_s3_upload: {
+                type: 'boolean',
+                title: 'Enable upload to S3',
+                default: false
+            },
+
             aws_s3_bucket_name: {
                 type: 'string',
                 title: 'AWS S3 bucket name, e.g. com.example.sk-cam'
