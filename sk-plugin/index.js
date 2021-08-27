@@ -167,10 +167,14 @@ module.exports = function (app) {
         Object.keys(cameraSettings).forEach((param) => {
             const url =  `http://${camera.ip}:${camera.camera_port}/control?var=${param}&val=${cameraSettings[param]}`
             app.debug(`Sending ${url}`)
-            request(url, function (error, response, body) {
-                if(error) app.error('error:', error);
-                if(response) app.debug('statusCode:', response.statusCode);
-            });
+            request
+                .get(url)
+                .on('response', function(response) {
+                    app.debug('cameraSettings status code',response.statusCode)
+                })
+                .on('error', function(err) {
+                    app.error('cameraSettings error:',err)
+                })
         })
     }
 

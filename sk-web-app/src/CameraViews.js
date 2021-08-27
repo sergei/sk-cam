@@ -22,7 +22,7 @@ const useStyles = makeStyles((theme) => ({
     },
 }));
 
-function Cameras(props) {
+function CameraViews(props) {
     const classes = useStyles();
 
     const [cameras, setCameras] = React.useState([]);
@@ -76,4 +76,4 @@ function Cameras(props) {
     )
 }
 
-export default Cameras;
+export default CameraViews;

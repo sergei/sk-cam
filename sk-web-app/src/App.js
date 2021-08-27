@@ -4,7 +4,8 @@ import React from "react";
 import LoginDialog from "./LoginDialog";
 import ExitToAppOutlinedIcon from '@material-ui/icons/ExitToAppOutlined';
 import {IconButton} from "@material-ui/core";
-import Cameras from "./Cameras";
+import CameraViews from "./CameraViews";
+import CameraControls from "./CameraControls";
 
 function App() {
 
@@ -33,11 +34,13 @@ function App() {
   const username = localStorage.getItem('username');
   const password = localStorage.getItem('password');
 
-  if( username &&  password){
+  if( username &&  password) {
     params.username = username
     params.password = password
     params.useAuthentication = true
     console.log('use cached credentials')
+  }else{
+    console.log('No cached credentials found')
   }
 
   const [authenticated, setAuthenticated] = React.useState(false);
@@ -71,9 +74,13 @@ function App() {
   // so listen for this event and check if we requested the authenticated connection
   client.on('connect', (authData) => {
     console.log('connect')
-    if( params.useAuthentication )
+    if( params.useAuthentication ) {
       setAuthenticated(true)
-      setLoginDialogOpen( false)
+      setLoginDialogOpen(false)
+    }else{
+      setAuthenticated(false)
+      setLoginDialogOpen(true)
+    }
   })
 
   client.on('error', (error) => {
@@ -92,9 +99,10 @@ function App() {
 
   return (
     <div className="App">
+       {authenticated ? logoutButton() : 'Not logged in'}
         <LoginDialog onLoginSubmit={onLoginSubmit} open={loginDialogOpen} handleClose={handleLoginClose}/>
-        <Cameras client={client} />
-        {authenticated ? logoutButton() : ''}
+        <CameraControls client={client} />
+        <CameraViews client={client} />
     </div>
   )
 }
