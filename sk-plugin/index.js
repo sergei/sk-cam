@@ -56,31 +56,7 @@ module.exports = function (app) {
         })
     }
 
-    function takeCameraSnapshot() {
-        rotatePictures()
-
-        const filePrefix = `cam-${moment().format('YYYY-MM-DD-HH-mm-ss')}`
-
-        snapshots = []
-        Object.keys(cameras).forEach((cam_id) => {
-            const camera = cameras[cam_id]
-            const url = `http://${camera.ip}:${camera.camera_port}/capture`
-            const base_name = `${filePrefix}_${camera.id}.jpg`
-            const filename = `${pluginOptions.pictures_dir}/${base_name}`
-
-            snapshots.push({
-                cam_id: camera.id,
-                filename: base_name
-            })
-
-            console.log(`Requesting ${url} to ${filename} ...`)
-            request.head(url, function (err, res, body) {
-                request(url).pipe(fs.createWriteStream(filename)).on('close', function () {
-                    console.log(`Received ${filename} from ${url}`)
-                })
-            });
-        })
-
+    function updateSnapshotsDelta(filePrefix, snapshots) {
         const metaData = {
             uuid: app.getSelfPath('uuid'),
             environment: app.getSelfPath('environment'),
@@ -119,6 +95,44 @@ module.exports = function (app) {
         })
     }
 
+    function takeCameraSnapshot() {
+        app.debug('takeCameraSnapshot')
+
+        let camerasRemaining = Object.keys(cameras).length;
+
+        const filePrefix = `cam-${moment().format('YYYY-MM-DD-HH-mm-ss')}`
+
+        snapshots = []
+
+        if ( camerasRemaining === 0 ) {
+            updateSnapshotsDelta(filePrefix, snapshots)
+        }
+
+        Object.keys(cameras).forEach((cam_id) => {
+            const camera = cameras[cam_id]
+            const url = `http://${camera.ip}:${camera.camera_port}/capture`
+            const base_name = `${filePrefix}_${camera.id}.jpg`
+            const filename = `${pluginOptions.pictures_dir}/${base_name}`
+
+            snapshots.push({
+                cam_id: camera.id,
+                filename: base_name
+            })
+
+            console.log(`Requesting ${url} to ${filename} ...`)
+            request.head(url, function (err, res, body) {
+                request(url).pipe(fs.createWriteStream(filename)).on('close', function () {
+                    camerasRemaining --
+                    console.log(`Received ${filename} from ${url} Remaining ${camerasRemaining}`)
+                    if ( camerasRemaining === 0){
+                        rotatePictures()
+                        updateSnapshotsDelta(filePrefix, snapshots)
+                    }
+                })
+            });
+        })
+    }
+
     // Client requested snapshot(s)
     let snapshotTimer = null
     let boatSpeedThreshold = 0  // Only take screenshots if boat moving faster than specified value
@@ -143,14 +157,16 @@ module.exports = function (app) {
     function doCapture(context, path, params, callback){
         app.debug('Got camera capture request', params);
         if ('type' in params && params.type === 'periodic') {
-            if( params.interval > 0 ){
+            if( params.period > 0 ){
                 if( 'min_sog' in params)
                     boatSpeedThreshold = params.min_sog * 1852 / 3600.  // Convert KTS to m/s
                 else
                     boatSpeedThreshold = 0
-                snapshotTimer = setInterval(takeConditionalSnapShot, params.interval * 1000)
+                const snapShotPeriodMs = params.period * 1000
+                app.debug(`Set snapshot period to ${snapShotPeriodMs} ms`)
+                snapshotTimer = setInterval(takeConditionalSnapShot, snapShotPeriodMs)
             }
-            else if( params.interval === 0 && snapshotTimer){
+            else if( params.period === 0 && snapshotTimer){
                 app.debug('Stop periodic snapshots')
                 clearInterval(snapshotTimer)
                 snapshotTimer = null
@@ -217,9 +233,10 @@ module.exports = function (app) {
 
     /// Called when we received the PUT request from the connected camera
     function updateCameraList(context, path, info, callback) {
+        const cam_id = 'CAM_' + parseInt(info.id).toString(16).toUpperCase();
         if ( 'id' in info && 'ip' in info && 'camera_port' in info && 'stream_port' in info) {
             let camera = {
-                id: info.id,
+                id: cam_id,
                 ip: info.ip,
                 rssi: info.rssi,
                 uptime: info.uptime,
@@ -229,17 +246,17 @@ module.exports = function (app) {
 
             let need_to_configure = false
             // Check if new camera got connected or existing camera gor reset
-            if ( !(info.id in cameras) ){
+            if ( !(cam_id in cameras) ){
                 app.debug('New camera got connected')
                 need_to_configure = true
-            } else if ( info.uptime < cameras[info.id].uptime ) {
+            } else if ( info.uptime < cameras[cam_id].uptime ) {
                 app.debug('Camera was reset')
                 need_to_configure = true
             }
-            cameras[info.id] = info
+            cameras[cam_id] = camera
             app.debug('Got camera update', cameras);
             if ( need_to_configure ){
-                configureCamera(info)
+                configureCamera(camera)
             }
             postCamerasInfo()
             return { state: 'COMPLETED', statusCode: 200 };

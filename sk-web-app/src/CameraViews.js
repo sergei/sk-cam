@@ -4,6 +4,7 @@ import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar';
 import SignalWifi3BarIcon from '@material-ui/icons/SignalWifi3Bar';
 import SignalWifi2BarIcon from '@material-ui/icons/SignalWifi2Bar';
 import SignalWifi1BarIcon from '@material-ui/icons/SignalWifi1Bar';
+import SignalWifiOffIcon from '@material-ui/icons/SignalWifiOff';
 
 const useStyles = makeStyles((theme) => ({
     root: {
@@ -25,16 +26,23 @@ const useStyles = makeStyles((theme) => ({
 function CameraViews(props) {
     const classes = useStyles();
 
-    const [cameras, setCameras] = React.useState([]);
+    const [snapshot, setSnapshot] = React.useState({meta: '', snapshots: []});
+
+    const camInfo ={}
 
     useEffect(() => {
         // Runs ONCE after initial rendering
         props.client.on('delta', (delta) => {
             delta.updates.forEach( update => {
                 update.values.forEach(value => {
+                    if(value.path === 'cameras.snapshot'){
+                        console.log("Snapshot", value.value)
+                        setSnapshot(value.value)
+                    }
                     if(value.path === 'cameras'){
-                        console.log(value.value)
-                        setCameras(value.value)
+                        const info = value.value
+                        console.log("Cameras", info)
+                        camInfo[info.id]=info
                     }
                 })
             })
@@ -42,7 +50,9 @@ function CameraViews(props) {
     }, []);
 
     const wifiIcon = (rssi) => {
-        if ( rssi > -50 )
+        if ( rssi === undefined )
+            return <SignalWifiOffIcon/>
+        else if ( rssi > -50 )
             return <SignalWifi4BarIcon/>
         else if(rssi > -60 )
             return <SignalWifi3BarIcon/>
@@ -58,19 +68,27 @@ function CameraViews(props) {
                 <ImageListItem key="Subheader" cols={2} style={{ height: 'auto' }}>
                     <ListSubheader component="div">Cameras</ListSubheader>
                 </ImageListItem>
-                {cameras.map((item) => (
-                    <ImageListItem key={item.url}>
-                        <img src={item.url+'/capture'} alt={item.id} />
-                        <ImageListItemBar
-                            title={item.id}
-                            actionIcon={
-                                <IconButton aria-label={`RSSI ${item.rssi} dBm`} className={classes.icon}>
-                                    {wifiIcon(item.rssi)}
-                                </IconButton>
-                            }
-                        />
-                    </ImageListItem>
-                ))}
+                {snapshot.snapshots.map((item) => {
+                    let rssi = undefined
+                    if (item.cam_id in camInfo){
+                        rssi = camInfo[item.cam_id].rssi;
+                    }
+                    const imgUrl = new URL('/sk-cam/' + item.filename, props.skHost)
+                    return (
+                        <ImageListItem key={item.url}>
+                            <img src={imgUrl} alt={item.cam_id}/>
+                            <ImageListItemBar
+                                title={item.cam_id}
+                                actionIcon={
+                                    <IconButton aria-label={`RSSI ${rssi} dBm`}
+                                                className={classes.icon}>
+                                        {wifiIcon(rssi)}
+                                    </IconButton>
+                                }
+                            />
+                        </ImageListItem>
+                    );
+                })}
             </ImageList>
         </div>
     )

@@ -26,6 +26,10 @@ function App() {
             path: 'cameras',
             policy: 'instant',
           },
+          {
+            path: 'cameras.snapshot',
+            policy: 'instant',
+          },
         ],
       },
     ],
@@ -45,6 +49,7 @@ function App() {
 
   const [authenticated, setAuthenticated] = React.useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = React.useState(false);
+  const [skHost, setSkHost] = React.useState(null)
 
   const client = new Client(params)
 
@@ -73,7 +78,13 @@ function App() {
   // The 'authenticated' is not emitted if we specify credentials when creating the client,
   // so listen for this event and check if we requested the authenticated connection
   client.on('connect', (authData) => {
-    console.log('connect')
+    console.log('connect', client)
+    const skHost = new URL(client.connection.httpURI).origin
+    console.log('httpUri', client.connection.httpURI)
+    console.log('skPath', skHost)
+    setSkHost(skHost)
+
+
     if( params.useAuthentication ) {
       setAuthenticated(true)
       setLoginDialogOpen(false)
@@ -102,7 +113,7 @@ function App() {
        {authenticated ? logoutButton() : 'Not logged in'}
         <LoginDialog onLoginSubmit={onLoginSubmit} open={loginDialogOpen} handleClose={handleLoginClose}/>
         <CameraControls client={client} />
-        <CameraViews client={client} />
+        <CameraViews client={client} skHost={skHost}/>
     </div>
   )
 }

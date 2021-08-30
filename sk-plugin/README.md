@@ -12,17 +12,33 @@ This plugin implements the paths necessary to control ESP32 cameras connected to
 - aws_secret_access_key
 
 ## The following path is emitted 
+
 ### vessels/\<RegExp>/cameras
 ```json
 [
   {
-    "id": 12345,
+    "id": "CAM_12345",
     "rssi": -50,
     "uptime": 123,
     "url": "http://1.2.3.4:3333",
     "stream": "http://1.2.3.4:3334"
   }
 ]
+```
+
+### vessels/\<RegExp>/cameras/snapshot
+```json
+[
+  {
+    "meta": "meta.json",
+    "snapshots": [{
+      "cam_id": "CAM_12345",
+      "filename": "picture.jpg"
+    }
+    ]
+  }
+]
+
 ```
 
 ## The following PUT paths are implemented 
@@ -45,7 +61,7 @@ This plugin implements the paths necessary to control ESP32 cameras connected to
 ```json
 {
   "type": "periodic",
-  "interval": 60,
+  "period": 60,
   "min_sog" : 1
 }
 ```
