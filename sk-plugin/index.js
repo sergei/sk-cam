@@ -158,12 +158,18 @@ module.exports = function (app) {
         app.debug('Got camera capture request', params);
         if ('type' in params && params.type === 'periodic') {
             if( params.period > 0 ){
+
                 if( 'min_sog' in params)
                     boatSpeedThreshold = params.min_sog * 1852 / 3600.  // Convert KTS to m/s
                 else
                     boatSpeedThreshold = 0
                 const snapShotPeriodMs = params.period * 1000
                 app.debug(`Set snapshot period to ${snapShotPeriodMs} ms`)
+
+                if ( snapshotTimer ){
+                    // Clear current timer
+                    clearInterval(snapshotTimer)
+                }
                 snapshotTimer = setInterval(takeConditionalSnapShot, snapShotPeriodMs)
             }
             else if( params.period === 0 && snapshotTimer){

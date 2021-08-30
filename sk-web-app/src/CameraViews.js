@@ -5,6 +5,7 @@ import SignalWifi3BarIcon from '@material-ui/icons/SignalWifi3Bar';
 import SignalWifi2BarIcon from '@material-ui/icons/SignalWifi2Bar';
 import SignalWifi1BarIcon from '@material-ui/icons/SignalWifi1Bar';
 import SignalWifiOffIcon from '@material-ui/icons/SignalWifiOff';
+import Moment from 'react-moment';
 
 const useStyles = makeStyles((theme) => ({
     root: {
@@ -27,8 +28,8 @@ function CameraViews(props) {
     const classes = useStyles();
 
     const [snapshot, setSnapshot] = React.useState({meta: '', snapshots: []});
+    const [camInfo, setCamInfo] = React.useState({});
 
-    const camInfo ={}
 
     useEffect(() => {
         // Runs ONCE after initial rendering
@@ -36,13 +37,19 @@ function CameraViews(props) {
             delta.updates.forEach( update => {
                 update.values.forEach(value => {
                     if(value.path === 'cameras.snapshot'){
-                        console.log("Snapshot", value.value)
-                        setSnapshot(value.value)
+                        const snapshot = value.value;
+                        snapshot.date = update.timestamp.toString()
+                        console.log("Snapshot", snapshot)
+                        setSnapshot(snapshot)
                     }
                     if(value.path === 'cameras'){
-                        const info = value.value
-                        console.log("Cameras", info)
-                        camInfo[info.id]=info
+                        const cameras = value.value
+                        console.log("Cameras", cameras)
+                        const camDict = {}
+                        cameras.forEach(camera => {
+                            camDict[camera.id] = camera
+                        })
+                        setCamInfo(camDict)
                     }
                 })
             })
@@ -70,6 +77,7 @@ function CameraViews(props) {
                 </ImageListItem>
                 {snapshot.snapshots.map((item) => {
                     let rssi = undefined
+                    console.log('Date', snapshot.date)
                     if (item.cam_id in camInfo){
                         rssi = camInfo[item.cam_id].rssi;
                     }
@@ -79,6 +87,7 @@ function CameraViews(props) {
                             <img src={imgUrl} alt={item.cam_id}/>
                             <ImageListItemBar
                                 title={item.cam_id}
+                                subtitle={<Moment format="HH:mm:ss">{snapshot.date}</Moment>}
                                 actionIcon={
                                     <IconButton aria-label={`RSSI ${rssi} dBm`}
                                                 className={classes.icon}>
