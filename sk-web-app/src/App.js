@@ -70,7 +70,6 @@ function App() {
 
   function onAuthenticated() {
     console.log('onAuthenticated')
-    client.unsubscribe()
     client.subscribe()
     setConnection({connected: true, authenticated: true})
   }

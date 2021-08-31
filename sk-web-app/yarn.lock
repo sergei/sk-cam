@@ -1233,6 +1233,11 @@
     "minimatch" "^3.0.4"
     "strip-json-comments" "^3.1.1"
 
+"@fontsource/roboto@^4.5.0":
+  "integrity" "sha512-ja4XYw/9kNRFM5Ndk9vwzHWsdBMXczyBazFkTXJQ74QQBnT0BbSsHn0pF60AU0Iznig1Wt9x3rADfG8LANvMpw=="
+  "resolved" "https://registry.npmjs.org/@fontsource/roboto/-/roboto-4.5.0.tgz"
+  "version" "4.5.0"
+
 "@hapi/address@2.x.x":
   "integrity" "sha512-QD1PhQk+s31P1ixsX0H0Suoupp3VMXzIVMSwobR3F3MSUO2YCV0B7xqLcUw/Bh8yuvd3LhpyqLQWTNcRmp6IdQ=="
   "resolved" "https://registry.npmjs.org/@hapi/address/-/address-2.1.4.tgz"

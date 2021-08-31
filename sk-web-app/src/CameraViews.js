@@ -1,5 +1,13 @@
 import React, {useEffect} from "react";
-import {IconButton, ImageList, ImageListItem, ImageListItemBar, ListSubheader, makeStyles} from "@material-ui/core";
+import {
+    IconButton,
+    ImageList,
+    ImageListItem,
+    ImageListItemBar,
+    ListSubheader,
+    makeStyles,
+    Paper, Typography
+} from "@material-ui/core";
 import SignalWifi4BarIcon from '@material-ui/icons/SignalWifi4Bar';
 import SignalWifi3BarIcon from '@material-ui/icons/SignalWifi3Bar';
 import SignalWifi2BarIcon from '@material-ui/icons/SignalWifi2Bar';
@@ -33,6 +41,7 @@ function CameraViews(props) {
 
     useEffect(() => {
         // Runs ONCE after initial rendering
+        console.log('Adding snapshot handlers')
         props.client.on('delta', (delta) => {
             delta.updates.forEach( update => {
                 update.values.forEach(value => {
@@ -72,10 +81,11 @@ function CameraViews(props) {
 
     return (
         <div className={classes.root}>
-            <ImageList rowHeight={180} className={classes.imageList}>
-                <ImageListItem key="Subheader" cols={2} style={{ height: 'auto' }}>
-                    <ListSubheader component="div">Cameras</ListSubheader>
-                </ImageListItem>
+            <Paper>
+                <Typography variant="h4" gutterBottom>
+                    Snapshots
+                </Typography>
+                <ImageList rowHeight={180} className={classes.imageList}>
                 {snapshot.snapshots.map((item) => {
                     let rssi = undefined
                     console.log('Date', snapshot.date)
@@ -100,6 +110,7 @@ function CameraViews(props) {
                     );
                 })}
             </ImageList>
+        </Paper>
         </div>
     )
 }
