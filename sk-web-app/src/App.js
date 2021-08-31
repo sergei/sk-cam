@@ -64,7 +64,9 @@ function App() {
       client.disconnect()
     }
 
-  }, []);
+  },
+      // eslint-disable-next-line
+      []);
 
   function onAuthenticated() {
     console.log('onAuthenticated')

@@ -53,7 +53,9 @@ function CameraViews(props) {
                 })
             })
         })
-    }, []);
+        },
+        // eslint-disable-next-line
+        []);
 
     const wifiIcon = (rssi) => {
         if ( rssi === undefined )

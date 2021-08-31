@@ -69,7 +69,9 @@ function CameraControls(props) {
                 setErrorMessage({open:true, err: err.toString()});
                 console.log('error[', err.toString(), ']')
             })
-    }, []);
+    },
+    // eslint-disable-next-line
+    []);
 
     const handleEnableCheckBox = (event) => {
         const newParams = { ...periodicParams, [event.target.name]: event.target.checked };
@@ -169,7 +171,7 @@ function CameraControls(props) {
                     label="Only if moving"
                 />
 
-                {isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} id="standard-basic" label="Period (seconds)" defaultValue={snapshotPeriod}  value={snapshotPeriod} onChange={handlePeriodChange} />}
+                {isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} id="standard-basic" label="Period (seconds)"  value={snapshotPeriod} onChange={handlePeriodChange} />}
                 {!isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} error helperText="Period must be positive number" id="standard-basic" label="Period (seconds)" defaultValue={snapshotPeriod}  onChange={handlePeriodChange} />}
                 <FormControl className={classes.formControl}>
                     <InputLabel id="demo-simple-select-label">Resolution</InputLabel>
@@ -179,7 +181,7 @@ function CameraControls(props) {
                         value={frameSize}
                         onChange={handleFrameSizeChange}
                     >
-                        { resolutions.map( res => (<MenuItem value={res.idx}>{res.label}</MenuItem>)) }
+                        { resolutions.map( res => (<MenuItem key={res.idx} value={res.idx}>{res.label}</MenuItem>)) }
                     </Select>
                 </FormControl>
             </form>
