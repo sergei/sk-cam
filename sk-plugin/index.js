@@ -20,6 +20,11 @@ module.exports = function (app) {
         quality: 10
     }
 
+    let snapshotSchedule = {
+        periodSec: 0,
+        boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
+    }
+
     function get_basename(path) {
         return path.split('/').reverse()[0];
     }
@@ -135,14 +140,13 @@ module.exports = function (app) {
 
     // Client requested snapshot(s)
     let snapshotTimer = null
-    let boatSpeedThreshold = 0  // Only take screenshots if boat moving faster than specified value
     let currentBoatSpeed = 0;
 
     function takeConditionalSnapShot(){
-        if( currentBoatSpeed >= boatSpeedThreshold ){
+        if( currentBoatSpeed >= snapshotSchedule.boatSpeedThreshold ){
             takeCameraSnapshot()
         }else{
-            app.debug(`Skip snapshot since ${currentBoatSpeed} < ${boatSpeedThreshold}`)
+            app.debug(`Skip snapshot since ${currentBoatSpeed} < ${snapshotSchedule.boatSpeedThreshold}`)
         }
     }
 
@@ -155,33 +159,78 @@ module.exports = function (app) {
     }
 
     function doCapture(context, path, params, callback){
+
         app.debug('Got camera capture request', params);
+        takeCameraSnapshot();
+        return { state: 'COMPLETED', statusCode: 200 };
+    }
+
+    function storeSchedule(schedule) {
+        const shed_file = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
+        fs.writeFileSync(shed_file, JSON.stringify(schedule));
+    }
+
+    function readSchedule() {
+        const shed_file = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
+        let schedule
+        try {
+            const data = fs.readFileSync(shed_file);
+            schedule = JSON.parse(data)
+        } catch (e) {
+            schedule = {
+                periodSec: 0,
+                boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
+            }
+        }
+        return schedule
+    }
+
+    function postSchedule(schedule){
+        app.handleMessage(plugin.id, {
+            updates: [{
+                values: [{
+                    path: 'cameras.schedule',
+                    value: schedule
+                }]
+            }]
+        })
+    }
+
+    function updateSchedule(context, path, params, callback){
+        app.debug('Got update camera schedule request', params);
         if ('type' in params && params.type === 'periodic') {
-            if( params.period > 0 ){
-
+            snapshotSchedule.periodSec = params.period
+            snapshotSchedule.boatSpeedThreshold = params.period
+            if( snapshotSchedule.periodSec > 0 ){
                 if( 'min_sog' in params)
-                    boatSpeedThreshold = params.min_sog * 1852 / 3600.  // Convert KTS to m/s
+                    snapshotSchedule.boatSpeedThreshold  = params.min_sog * 1852 / 3600.  // Convert KTS to m/s
                 else
-                    boatSpeedThreshold = 0
-                const snapShotPeriodMs = params.period * 1000
-                app.debug(`Set snapshot period to ${snapShotPeriodMs} ms`)
-
-                if ( snapshotTimer ){
-                    // Clear current timer
-                    clearInterval(snapshotTimer)
-                }
-                snapshotTimer = setInterval(takeConditionalSnapShot, snapShotPeriodMs)
+                    snapshotSchedule.boatSpeedThreshold = 0
             }
-            else if( params.period === 0 && snapshotTimer){
-                app.debug('Stop periodic snapshots')
-                clearInterval(snapshotTimer)
-                snapshotTimer = null
-            }
-        } else { // Do just single snapshot
-            takeCameraSnapshot();
+            storeSchedule(snapshotSchedule)
+            postSchedule(snapshotSchedule)
+            controlSchedule(snapshotSchedule)
         }
 
         return { state: 'COMPLETED', statusCode: 200 };
+    }
+
+    function controlSchedule(schedule){
+
+        if( schedule.periodSec > 0 ){
+            if ( snapshotTimer ){
+                // Clear current timer
+                clearInterval(snapshotTimer)
+            }
+            const snapShotPeriodMs = schedule.periodSec * 1000
+            app.debug(`Start periodic snapshots with interval ${snapShotPeriodMs} ms`)
+            snapshotTimer = setInterval(takeConditionalSnapShot, snapShotPeriodMs)
+        }
+        else if( schedule.periodSec === 0 && snapshotTimer){
+            app.debug('Stop periodic snapshots')
+            clearInterval(snapshotTimer)
+            snapshotTimer = null
+        }
     }
 
     // This function updates the connected camera settings
@@ -313,6 +362,9 @@ module.exports = function (app) {
         app.registerPutHandler('vessels.self', 'cameras.settings', updateCameraSettings)
 
         // Request capture
+        app.registerPutHandler('vessels.self', 'cameras.schedule', updateSchedule)
+
+        // Request immediate capture
         app.registerPutHandler('vessels.self', 'cameras.capture', doCapture)
 
         // Mount the file upload routes
@@ -365,6 +417,10 @@ module.exports = function (app) {
                 })
             }
         )
+
+        snapshotSchedule = readSchedule()
+        postSchedule(snapshotSchedule)
+        controlSchedule(snapshotSchedule)
 
         app.debug('Plugin started')
     }

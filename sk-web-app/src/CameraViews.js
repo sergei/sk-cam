@@ -41,8 +41,7 @@ function CameraViews(props) {
                         snapshot.date = update.timestamp.toString()
                         console.log("Snapshot", snapshot)
                         setSnapshot(snapshot)
-                    }
-                    if(value.path === 'cameras'){
+                    } else if(value.path === 'cameras'){
                         const cameras = value.value
                         console.log("Cameras", cameras)
                         const camDict = {}

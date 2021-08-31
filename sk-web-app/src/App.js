@@ -30,6 +30,10 @@ function App() {
             path: 'cameras.snapshot',
             policy: 'instant',
           },
+          {
+            path: 'cameras.schedule',
+            policy: 'instant',
+          },
         ],
       },
     ],

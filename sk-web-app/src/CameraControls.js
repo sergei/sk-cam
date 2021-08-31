@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useEffect} from "react";
 import {
     Checkbox,
     FormControl,
@@ -32,6 +32,7 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 function CameraControls(props) {
+
     const classes = useStyles();
 
     const [errorMessage, setErrorMessage] = React.useState({open:false, err: ''});
@@ -42,16 +43,38 @@ function CameraControls(props) {
     });
     const [snapshotPeriod, setSnapshotPeriod] = React.useState(60);
 
+    // Get settings from the server
+    useEffect(() => {
+        // Runs ONCE after initial rendering
+        props.client.on('delta', (delta) => {
+            delta.updates.forEach( update => {
+                update.values.forEach(value => {
+                    if(value.path === 'cameras.schedule'){
+                        const schedule = value.value
+                        console.log("Schedule", schedule)
+                        setPeriodicParams( {
+                            enablePeriodic: schedule.periodSec > 0,
+                            movingOnly: schedule.boatSpeedThreshold > 0
+                        })
+                        if( schedule.periodSec > 0 ){
+                            setSnapshotPeriod(schedule.periodSec)
+                        }
+                    }
+                })
+            })
+        })
+    }, []);
+
     const handleEnableCheckBox = (event) => {
         const newParams = { ...periodicParams, [event.target.name]: event.target.checked };
         setPeriodicParams(newParams);
-        updatePeriodicParams(newParams.enablePeriodic, newParams.movingOnly, snapshotPeriod)
+        updateSchedule(newParams.enablePeriodic, newParams.movingOnly, snapshotPeriod)
     };
 
     const handlePeriodChange = (event) => {
         const snapshotPeriod = event.target.value
         setSnapshotPeriod(snapshotPeriod)
-        updatePeriodicParams(periodicParams.enablePeriodic, periodicParams.movingOnly, snapshotPeriod)
+        updateSchedule(periodicParams.enablePeriodic, periodicParams.movingOnly, snapshotPeriod)
     };
 
     const handleFrameSizeChange = (event) => {
@@ -81,10 +104,10 @@ function CameraControls(props) {
             })
     }
 
-    const putCaptureRequest = (params) => {
+    const doSingleSnapshot = () => {
         props.client
             .API()
-            .then((api) => api.put('/vessels/self/cameras/capture', {value: params}))
+            .then((api) => api.put('/vessels/self/cameras/capture', {value:{}}))
             .then((result) => {
                 console.log(result)
             })
@@ -94,16 +117,21 @@ function CameraControls(props) {
             })
     }
 
-    const doSingleSnapshot = () => {
-        putCaptureRequest({})
-    }
-
-    const updatePeriodicParams = (enablePeriodic, movingOnly, period) => {
-        putCaptureRequest({
-            type: 'periodic',
-            period: enablePeriodic ? parseInt(period) : 0,
-            min_sog: movingOnly ? 1 : 0,
-        })
+    const updateSchedule = (enablePeriodic, movingOnly, period) => {
+        props.client
+            .API()
+            .then((api) => api.put('/vessels/self/cameras/schedule', {value: {
+                type: 'periodic',
+                period: enablePeriodic ? parseInt(period) : 0,
+                min_sog: movingOnly ? 1 : 0,
+            }}))
+            .then((result) => {
+                console.log(result)
+            })
+            .catch((err) => {
+                setErrorMessage({open:true, err: err.toString()});
+                console.log('error[', err.toString(), ']')
+            })
     }
 
     const resolutions = [
@@ -135,7 +163,7 @@ function CameraControls(props) {
                     label="Only if moving"
                 />
 
-                {isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} id="standard-basic" label="Period (seconds)" defaultValue={snapshotPeriod}  onChange={handlePeriodChange} />}
+                {isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} id="standard-basic" label="Period (seconds)" defaultValue={snapshotPeriod}  value={snapshotPeriod} onChange={handlePeriodChange} />}
                 {!isPositiveNumber(snapshotPeriod) &&  <TextField className={classes.formControl} error helperText="Period must be positive number" id="standard-basic" label="Period (seconds)" defaultValue={snapshotPeriod}  onChange={handlePeriodChange} />}
                 <FormControl className={classes.formControl}>
                     <InputLabel id="demo-simple-select-label">Resolution</InputLabel>
