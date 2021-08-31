@@ -11,19 +11,22 @@ const path = require("path");
 
 const DEFAULT_MAX_PICS = 3
 
+const DEFAULT_CAM_SETTINGS = {
+    framesize: 10,
+    quality: 10
+};
+
+const DEFAULT_SNAPSHOT_SCHEDULE = {
+    periodSec: 0,          // 0 means periodic snapshots are disabled
+    boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
+};
+
 module.exports = function (app) {
 
     const cameras = {}
     let pluginOptions = {}
-    let cameraSettings = {
-        framesize: 10,
-        quality: 10
-    }
-
-    let snapshotSchedule = {
-        periodSec: 0,
-        boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
-    }
+    let cameraSettings = DEFAULT_CAM_SETTINGS
+    let snapshotSchedule = DEFAULT_SNAPSHOT_SCHEDULE
 
     function get_basename(path) {
         return path.split('/').reverse()[0];
@@ -166,21 +169,20 @@ module.exports = function (app) {
     }
 
     function storeSchedule(schedule) {
-        const shed_file = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
-        fs.writeFileSync(shed_file, JSON.stringify(schedule));
+        const filename = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
+        app.debug(`Storing schedule to ${filename}`)
+        fs.writeFileSync(filename, JSON.stringify(schedule));
     }
 
     function readSchedule() {
-        const shed_file = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
+        const filename = require('path').join(app.getDataDirPath(), 'sk-cam-schedule.json')
+        app.debug(`Reading schedule from ${filename}`)
         let schedule
         try {
-            const data = fs.readFileSync(shed_file);
+            const data = fs.readFileSync(filename);
             schedule = JSON.parse(data)
         } catch (e) {
-            schedule = {
-                periodSec: 0,
-                boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
-            }
+            schedule = DEFAULT_SNAPSHOT_SCHEDULE
         }
         return schedule
     }
@@ -233,6 +235,36 @@ module.exports = function (app) {
         }
     }
 
+    function storeCameraSettings(settings) {
+        const filename = require('path').join(app.getDataDirPath(), 'sk-cam-settings.json')
+        app.debug(`Storing camera settings to ${filename}`)
+        fs.writeFileSync(filename, JSON.stringify(settings));
+    }
+
+    function readCameraSettings() {
+        const filename = require('path').join(app.getDataDirPath(), 'sk-cam-settings.json')
+        app.debug(`Reading camera settings from ${filename}`)
+        let settings
+        try {
+            const data = fs.readFileSync(filename);
+            settings = JSON.parse(data)
+        } catch (e) {
+            settings = DEFAULT_CAM_SETTINGS
+        }
+        return settings
+    }
+
+    function postCameraSettings(settings){
+        app.handleMessage(plugin.id, {
+            updates: [{
+                values: [{
+                    path: 'cameras.settings',
+                    value: settings
+                }]
+            }]
+        })
+    }
+
     // This function updates the connected camera settings
     function configureCamera(camera) {
         Object.keys(cameraSettings).forEach((param) => {
@@ -280,6 +312,8 @@ module.exports = function (app) {
     function updateCameraSettings(context, path, settings, callback) {
         app.debug('Got cameras settings', settings);
         cameraSettings = settings
+        storeCameraSettings(cameraSettings)
+        postCameraSettings(cameraSettings)
         Object.keys(cameras).forEach((cam_id) => {
             configureCamera(cameras[cam_id])
         })
@@ -421,6 +455,9 @@ module.exports = function (app) {
         snapshotSchedule = readSchedule()
         postSchedule(snapshotSchedule)
         controlSchedule(snapshotSchedule)
+
+        cameraSettings = readCameraSettings()
+        postCameraSettings(cameraSettings)
 
         app.debug('Plugin started')
     }

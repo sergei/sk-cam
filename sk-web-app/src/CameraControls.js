@@ -46,23 +46,29 @@ function CameraControls(props) {
     // Get settings from the server
     useEffect(() => {
         // Runs ONCE after initial rendering
-        props.client.on('delta', (delta) => {
-            delta.updates.forEach( update => {
-                update.values.forEach(value => {
-                    if(value.path === 'cameras.schedule'){
-                        const schedule = value.value
-                        console.log("Schedule", schedule)
-                        setPeriodicParams( {
-                            enablePeriodic: schedule.periodSec > 0,
-                            movingOnly: schedule.boatSpeedThreshold > 0
-                        })
-                        if( schedule.periodSec > 0 ){
-                            setSnapshotPeriod(schedule.periodSec)
-                        }
-                    }
+        props.client
+            .API()
+            .then((api) => api.get('/vessels/self/cameras'))
+            .then((result) => {
+                console.log("Result", result)
+                const schedule = result.schedule.value
+                console.log("Schedule", schedule)
+                setPeriodicParams( {
+                    enablePeriodic: schedule.periodSec > 0,
+                    movingOnly: schedule.boatSpeedThreshold > 0
                 })
+                if( schedule.periodSec > 0 ){
+                    setSnapshotPeriod(schedule.periodSec)
+                }
+                const settings = result.settings.value
+                console.log("Settings", settings)
+                setFrameSize(settings.framesize)
+
             })
-        })
+            .catch((err) => {
+                setErrorMessage({open:true, err: err.toString()});
+                console.log('error[', err.toString(), ']')
+            })
     }, []);
 
     const handleEnableCheckBox = (event) => {
