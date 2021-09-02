@@ -1,0 +1,20 @@
+{
+  "name": "sk-cam-web-app",
+  "version": "1.0.0",
+  "description": "ESP32 CAM Controller",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergei/sk-cam.git"
+  },
+  "keywords": [
+    "signalk-webapp"
+  ],
+  "author": "Sergei Podshivalov",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sergei/sk-cam/issues"
+  },
+  "homepage": "https://github.com/sergei/sk-cam#readme",
+  "dependencies": {
+  }
+}

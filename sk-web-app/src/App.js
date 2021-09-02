@@ -13,8 +13,8 @@ function App() {
 
   // Listen to the "delta" event to get the stream data
   const params = {
-    hostname: 'localhost',
-    port: 3000,
+    hostname: '192.168.4.1',
+    port: 80,
     useTLS: false,
     reconnect: true,
     autoConnect: false,
