@@ -9,7 +9,7 @@ const s3Uploader = require('./s3_uploader')
 const nmea = require('./nmea.js')
 const path = require("path");
 
-const DEFAULT_MAX_PICS = 3
+const DEFAULT_MAX_PICS = 4 * 60 * 60
 
 const DEFAULT_CAM_SETTINGS = {
     framesize: 10,

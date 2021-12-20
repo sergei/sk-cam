@@ -77,7 +77,6 @@ def measure_sail_shape(input_name):
     print("[INFO] loading image...")
     image = cv2.imread(input_name)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # cv2.imshow("Sail shape", image)
 
     # Detect the markers
     end_rects, start_rects = detect_tags(image)
@@ -92,8 +91,9 @@ def measure_sail_shape(input_name):
         end_x = np.int(np.mean(end_rect[:, 0]))
         end_y = np.int(np.mean(end_rect[:, 1]))
 
-        # Chord line
+        # Angle of Chord line
         angle = math.degrees(math.atan2(end_y - start_y, end_x - start_x))
+        # Matrices to rotate image
         rot_mat = cv2.getRotationMatrix2D((start_x, start_y), angle, 1.0)
 
         # Mask the tags rectangles
@@ -134,5 +134,21 @@ def measure_sail_shape(input_name):
         cv2.polylines(cropped_image, [fit_pts.reshape((-1, 1, 2))], False, (255, 255, 255), thickness=4)
 
         cv2.imshow("Cropped {}".format(stripe_idx), cropped_image)
+
+        # Find stripe coordinates in original image
+        fit_pts = np.array([fit_pts])
+        # Move back
+        tr_mat = np.array([
+            [1, 0, start_x],
+            [0, 1, start_y]
+        ], dtype=np.float32)
+        tr_fit_pts = cv2.transform(fit_pts, tr_mat)
+        # Rotate back
+        inv_rot_mat = cv2.invertAffineTransform(rot_mat)
+        rot_tr_fit_pts = cv2.transform(tr_fit_pts, inv_rot_mat)
+
+        cv2.polylines(image, [rot_tr_fit_pts.reshape((-1, 1, 2))], False, (255, 255, 255), thickness=4)
+
+    cv2.imshow("Sail shape", image)
 
     cv2.waitKey(0)
