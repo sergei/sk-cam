@@ -34,6 +34,32 @@ def calibrate_camera(all_corners, all_ids, imsize):
         flags=flags,
         criteria=(cv2.TERM_CRITERIA_EPS & cv2.TERM_CRITERIA_COUNT, 10000, 1e-9))
 
+    fx = camera_matrix[1][1]
+    fx_std = stdDeviationsIntrinsics[0][0]
+    fx_err = fx_std / fx * 100
+    fy = camera_matrix[1][1]
+    fy_std = stdDeviationsIntrinsics[1][0]
+    fy_err = fy_std / fy * 100
+    cx = camera_matrix[0][2]
+    cx_std = stdDeviationsIntrinsics[2][0]
+    cx_err = cx_std / cx * 100
+    cy = camera_matrix[1][2]
+    cy_std = stdDeviationsIntrinsics[3][0]
+    cy_err = cy_std / cy * 100
+
+    print(f'fx={fx:.0f}(±{fx_err:.0f}%) px fy={fy:.0f}(±{fy_err:.0f}%)  px')
+    print(f'cx={fx:.0f}(±{cx_err:.0f}%) px cy={cy:.0f}(±{cy_err:.0f}%)  px')
+
+    aperture_width = 3.590
+    aperture_height = 2.684
+    fov_x, fov_y, focal_length, principal_point, aspect_ratio = cv2.calibrationMatrixValues(camera_matrix, imsize,
+                                                                                            aperture_width,
+                                                                                            aperture_height)
+    print(f'Assuming sensor image area WxH {aperture_width}x{aperture_height} mm camera matrix is:')
+    print(f'fov_x={fov_x:.1f}° fov_y={fov_y:.1f}° focal_length={focal_length:.1f}mm ')
+    print(f'focal_length={focal_length:.1f}mm principal_point=({principal_point[0]:.1f}, {principal_point[1]:.1f})mm '
+          f'aspect_ratio={aspect_ratio}')
+
     return ret, camera_matrix, distortion_coefficients0, rotation_vectors, translation_vectors
 
 
@@ -84,7 +110,11 @@ def make_board():
     aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
     square_length = 30 * 1e-3  # 30 mm
     marker_length = 24 * 1e-3  # 28 mm
-    board = aruco.CharucoBoard_create(7, 5, square_length, marker_length, aruco_dict)
+    squares_x = 7
+    squares_y = 5
+    print(f'CharucoBoard {squares_x}x{squares_y} '
+          f'square_length={square_length*1000}mm marker_length={marker_length*1000}mm')
+    board = aruco.CharucoBoard_create(squares_x, squares_y, square_length, marker_length, aruco_dict)
     return board, aruco_dict
 
 
@@ -103,8 +133,11 @@ def calibrate(pict_dir):
 
     all_corners, all_ids, imsize = read_chessboards(images)
     ret, mtx, dist, rvecs, tvecs = calibrate_camera(all_corners, all_ids, imsize)
+
     calibration = CalibrationData()
-    calibration.store('./calibration.json', mtx, dist)
+    cal_dir = pict_dir + os.sep + 'calibration'
+    os.makedirs(cal_dir, exist_ok=True)
+    calibration.store(cal_dir + os.sep + 'calibration.json', mtx, dist)
     verify_calibration(mtx, dist, images)
 
 
