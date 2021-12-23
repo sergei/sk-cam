@@ -12,7 +12,7 @@ const path = require("path");
 const DEFAULT_MAX_PICS = 4 * 60 * 60
 
 const DEFAULT_CAM_SETTINGS = {
-    framesize: 10,
+    framesize: 13,
     quality: 10
 };
 

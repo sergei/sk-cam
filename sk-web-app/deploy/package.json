@@ -1,6 +1,6 @@
 {
   "name": "sk-cam-web-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ESP32 CAM Controller",
   "repository": {
     "type": "git",

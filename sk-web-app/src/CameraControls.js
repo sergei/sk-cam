@@ -143,15 +143,12 @@ function CameraControls(props) {
     }
 
     const resolutions = [
-        {idx: 10, label: 'UXGA(1600x1200)'},
-        {idx: 9, label: 'SXGA(1280x1024)'},
-        {idx: 8, label: 'XGA(1024x768)'},
-        {idx: 7, label: 'SVGA(800x600)'},
-        {idx: 6, label: 'VGA(640x480)'},
-        {idx: 5, label: 'CIF(400x296)'},
-        {idx: 4, label: 'QVGA(320x240)'},
-        {idx: 3, label: 'HQVGA(240x176)'},
-        {idx: 0, label: 'QQVGA(160x120)'},
+        {idx: 13, label: 'UXGA(1600x1200)'},
+        {idx: 12, label: 'SXGA(1280x1024)'},
+        {idx: 11, label: 'HD(1280x720)'},
+        {idx: 10, label: 'XGA(1024x768)'},
+        {idx: 9, label: 'SVGA(800x600)'},
+        {idx: 8, label: 'VGA(640x480)'},
     ]
 
     const isPositiveNumber = (value) => {
