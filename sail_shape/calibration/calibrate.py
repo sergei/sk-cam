@@ -141,7 +141,7 @@ def calibrate(pict_dir):
     verify_calibration(mtx, dist, images)
 
 
-def test_pose(img):
+def test_pose(img, cal_file):
     print("=> Processing image {0}".format(img))
     frame = cv2.imread(img)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -149,15 +149,19 @@ def test_pose(img):
     aruco_params = cv2.aruco.DetectorParameters_create()
     (corners, ids, rejected) = cv2.aruco.detectMarkers(gray, aruco_dict,
                                                        parameters=aruco_params)
-    cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
-    cal = CalibrationData('./calibration.json')
+    if len(corners) > 0:
+        cal = CalibrationData(cal_file)
 
-    size_of_marker = 0.19  # 19 cm
-    rvecs, tvecs, _objPoints = aruco.estimatePoseSingleMarkers(corners, size_of_marker, cal.mtx, cal.dist)
-    r = tvecs[0][0]
-    d = np.sqrt(r[0] ** 2 + r[1] ** 2 + r[2] ** 2)
-    print('Distance to marker {} meters'.format(d))
+        size_of_marker = 0.19  # 19 cm
+        rvecs, tvecs, _objPoints = aruco.estimatePoseSingleMarkers(corners, size_of_marker, cal.mtx, cal.dist)
+        r = tvecs[0][0]
+        d = np.sqrt(r[0] ** 2 + r[1] ** 2 + r[2] ** 2)
+        print('Distance to marker {} meters'.format(d))
+        cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+    else:
+        print('Tag not found')
+        cv2.aruco.drawDetectedMarkers(frame, rejected)
 
     cv2.imshow("Detection", frame)
 
@@ -169,6 +173,7 @@ if __name__ == '__main__':
     parser.add_argument("--print", action='store_true', help="Make ChArucoBoard image", default=False)
     parser.add_argument("--pict-dir", help="Make ChArucoBoard image")
     parser.add_argument("--test-pose-img", help="Make ChArucoBoard image")
+    parser.add_argument("--cal-file", help="File containing camera calibration data")
 
     args = parser.parse_args()
     if args.print:
@@ -176,6 +181,6 @@ if __name__ == '__main__':
     elif args.pict_dir is not None:
         calibrate(os.path.expanduser(args.pict_dir))
     elif args.test_pose_img is not None:
-        test_pose(os.path.expanduser(args.test_pose_img))
+        test_pose(os.path.expanduser(args.test_pose_img), os.path.expanduser(args.cal_file))
     else:
         print(parser.usage)
