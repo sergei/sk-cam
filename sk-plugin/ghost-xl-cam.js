@@ -1,6 +1,9 @@
 const net = require('net');
 const request = require("request");
 const fs = require("fs");
+const dgram = require('dgram');
+
+const DRIFT_BCAST_UDP_PORT = 5555;  // Drift camera broadcasts its serial number on this UDP port
 
 function IsJsonString(str) {
     try {
@@ -61,8 +64,10 @@ function processResponse(msg, socket, fileName) {
             break;
         case 769:  // Photo results
             if (msg.rval !== 0) {
-                console.log(`Failed to take picture`)
-                sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+                console.log(`Failed to take picture, try it again`)  // FIXME set maximum number of tries
+                // Try again
+                sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
+                // sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
             }
             break;
         case 7: // Notification
@@ -108,8 +113,43 @@ function captureJpeg (ipAddr, fileName) {
 
 }
 
+
+function detectCameras(cb){
+    const server = dgram.createSocket('udp4');
+
+    server.on('error', (err) => {
+        console.log(`server error:\n${err.stack}`);
+        server.close();
+    });
+
+    server.on('message', (msg, rinfo) => {
+        console.log(`server got: ${msg} from ${rinfo.address}:${rinfo.port}`);
+        const t = msg.toString('utf8').split('|')
+        if (t[0] === '5') {
+            const cameraId = t[1]
+            const model= t [2]
+            server.close()
+            cb(rinfo.address, cameraId, model)
+        }else{
+            console.log('Ignore rogue UDP packet')
+        }
+
+    });
+
+    server.on('listening', () => {
+        const address = server.address();
+        console.log(`server listening ${address.address}:${address.port}`);
+    });
+
+    server.bind(DRIFT_BCAST_UDP_PORT);
+}
+
 module.exports = {
     captureJpeg: captureJpeg,
 }
 
-captureJpeg('192.168.42.1', '/tmp/pict.jpg')
+detectCameras( (address, cameraId, cameraModel) => {
+    console.log(`Detected camera  ${cameraId}-${cameraModel} at ${address}`);
+    captureJpeg(address, '/tmp/pict.jpg')
+})
+
