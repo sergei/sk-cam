@@ -330,7 +330,7 @@ module.exports = function (app) {
         if (need_to_configure) {
             cameras[camera.id] = camera
             app.debug('Got camera update', cameras);
-            camera.control.configureCamera(camera)
+            camera.control.configureCamera(app, camera, cameraSettings)
             camera.snapshotInProgress  = false
         }
         postCamerasInfo()

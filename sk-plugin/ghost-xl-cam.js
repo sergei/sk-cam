@@ -182,7 +182,7 @@ function detectCameras(cb){
     server.bind(DRIFT_BCAST_UDP_PORT);
 }
 
-function configureCamera(camera, cameraSettings) {
+function configureCamera(app, camera, cameraSettings) {
 // Not much to configure for now. All configuration is done before taking the picture
 }
 
