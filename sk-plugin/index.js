@@ -2,12 +2,13 @@
 // noinspection HttpUrlsUsage
 
 const  fs = require('fs')
-const request = require('request');
 const moment = require('moment');
 const glob = require('glob');
 const s3Uploader = require('./s3_uploader')
 const nmea = require('./nmea.js')
 const path = require("path");
+const ghost_camera = require('./ghost-xl-cam')
+const esp32_camera = require('./esp32-cam')
 
 const DEFAULT_MAX_PICS = 4 * 60 * 60
 
@@ -21,9 +22,10 @@ const DEFAULT_SNAPSHOT_SCHEDULE = {
     boatSpeedThreshold : 0 // Only take screenshots if boat moving faster than specified value
 };
 
+const cameras = {}
+
 module.exports = function (app) {
 
-    const cameras = {}
     let pluginOptions = {}
     let cameraSettings = DEFAULT_CAM_SETTINGS
     let snapshotSchedule = DEFAULT_SNAPSHOT_SCHEDULE
@@ -118,26 +120,35 @@ module.exports = function (app) {
 
         Object.keys(cameras).forEach((cam_id) => {
             const camera = cameras[cam_id]
-            const url = `http://${camera.ip}:${camera.camera_port}/capture`
-            const base_name = `${filePrefix}_${camera.id}.jpg`
-            const filename = `${pluginOptions.pictures_dir}/${base_name}`
+            if (cameras[cam_id].snapshotInProgress ){
+                console.log(`Snapshot for ${cam_id} is already in progress ...`)
+            }else{
+                cameras[cam_id].snapshotInProgress = true
+                const base_name = `${filePrefix}_${camera.id}.jpg`
+                const filename = `${pluginOptions.pictures_dir}/${base_name}`
 
-            snapshots.push({
-                cam_id: camera.id,
-                filename: base_name
-            })
+                snapshots.push({
+                    cam_id: camera.id,
+                    filename: base_name
+                })
 
-            console.log(`Requesting ${url} to ${filename} ...`)
-            request.head(url, function (err, res, body) {
-                request(url).pipe(fs.createWriteStream(filename)).on('close', function () {
+                camera.control.captureJpeg(camera, filename, (err) => {
                     camerasRemaining --
-                    console.log(`Received ${filename} from ${url} Remaining ${camerasRemaining}`)
+                    if ( err ){
+                        console.log(`Failed to capture ${filename} from ${camera.id} Remaining ${camerasRemaining}`)
+                        console.log(`Remove camera with ID ${cam_id} because of previous error`)
+                        delete cameras[cam_id]
+                        postCamerasInfo()
+                    }else{
+                        console.log(`Received ${filename} from ${camera.id} Remaining ${camerasRemaining}`)
+                    }
                     if ( camerasRemaining === 0){
                         rotatePictures()
                         updateSnapshotsDelta(filePrefix, snapshots)
                     }
                 })
-            });
+                cameras[cam_id].snapshotInProgress = false
+            }
         })
     }
 
@@ -145,7 +156,7 @@ module.exports = function (app) {
     let snapshotTimer = null
     let currentBoatSpeed = 0;
 
-    function takeConditionalSnapShot(){
+    const takeConditionalSnapShot = () => {
         if( currentBoatSpeed >= snapshotSchedule.boatSpeedThreshold ){
             takeCameraSnapshot()
         }else{
@@ -265,33 +276,19 @@ module.exports = function (app) {
         })
     }
 
-    // This function updates the connected camera settings
-    function configureCamera(camera) {
-        Object.keys(cameraSettings).forEach((param) => {
-            const url =  `http://${camera.ip}:${camera.camera_port}/control?var=${param}&val=${cameraSettings[param]}`
-            app.debug(`Sending ${url}`)
-            request
-                .get(url)
-                .on('response', function(response) {
-                    app.debug('cameraSettings status code',response.statusCode)
-                })
-                .on('error', function(err) {
-                    app.error('cameraSettings error:',err)
-                })
-        })
-    }
-
     // Update the SK path "cameras" with the list of the connected cameras
     function postCamerasInfo(){
         const camera_list = []
         Object.keys(cameras).forEach((cam_id) => {
-            camera_list.push({
+            let cam = {
                 id: cam_id,
                 rssi: cameras[cam_id].rssi,
                 uptime: cameras[cam_id].uptime,
-                url: `http://${cameras[cam_id].ip}:${cameras[cam_id].camera_port}`,
-                stream: `http://${cameras[cam_id].ip}:${cameras[cam_id].stream_port}`,
-            })
+                type: cameras[cam_id].type,
+                url: cameras[cam_id].url,
+                stream: cameras[cam_id].stream,
+            }
+            camera_list.push(cam)
         })
 
         app.handleMessage(plugin.id , {
@@ -315,39 +312,49 @@ module.exports = function (app) {
         storeCameraSettings(cameraSettings)
         postCameraSettings(cameraSettings)
         Object.keys(cameras).forEach((cam_id) => {
-            configureCamera(cameras[cam_id])
+            cameras[cam_id].control.configureCamera(cameras[cam_id])
         })
         return { state: 'COMPLETED', statusCode: 200 };
     }
 
-    /// Called when we received the PUT request from the connected camera
-    function updateCameraList(context, path, info, callback) {
+    function insertCamera(camera) {
+        let need_to_configure = false
+        // Check if new camera got connected or existing camera gor reset
+        if (!(camera.id in cameras)) {
+            app.debug('New camera got connected')
+            need_to_configure = true
+        } else if (camera.uptime < cameras[camera.id].uptime) {
+            app.debug('Camera was reset')
+            need_to_configure = true
+        }
+        if (need_to_configure) {
+            cameras[camera.id] = camera
+            app.debug('Got camera update', cameras);
+            camera.control.configureCamera(camera)
+            camera.snapshotInProgress  = false
+        }
+        postCamerasInfo()
+    }
+
+/// Called when we received the PUT request from the connected camera
+    function updateEsp32CameraList(context, path, info, callback) {
         const cam_id = 'CAM_' + parseInt(info.id).toString(16).toUpperCase();
         if ( 'id' in info && 'ip' in info && 'camera_port' in info && 'stream_port' in info) {
-            let camera = {
+
+            insertCamera({
                 id: cam_id,
                 ip: info.ip,
+                type: 'esp32',
+                control: esp32_camera,
+                model: '',
                 rssi: info.rssi,
                 uptime: info.uptime,
                 camera_port: info.camera_port,
                 stream_port: info.stream_port,
-            };
+                url: `http://${info.ip}:${info.camera_port}`,
+                stream: `http://${info.ip}:${info.stream_port}`
+            });
 
-            let need_to_configure = false
-            // Check if new camera got connected or existing camera gor reset
-            if ( !(cam_id in cameras) ){
-                app.debug('New camera got connected')
-                need_to_configure = true
-            } else if ( info.uptime < cameras[cam_id].uptime ) {
-                app.debug('Camera was reset')
-                need_to_configure = true
-            }
-            cameras[cam_id] = camera
-            app.debug('Got camera update', cameras);
-            if ( need_to_configure ){
-                configureCamera(camera)
-            }
-            postCamerasInfo()
             return { state: 'COMPLETED', statusCode: 200 };
         }else{
             app.debug('Invalid camera info received')
@@ -390,7 +397,7 @@ module.exports = function (app) {
         // Configure PUT paths
 
         // Inform plugin about connected camera
-        app.registerPutHandler('vessels.self', 'camera.info', updateCameraList)
+        app.registerPutHandler('vessels.self', 'camera.info', updateEsp32CameraList)
 
         // Set camera capture settings
         app.registerPutHandler('vessels.self', 'cameras.settings', updateCameraSettings)
@@ -458,6 +465,23 @@ module.exports = function (app) {
 
         cameraSettings = readCameraSettings()
         postCameraSettings(cameraSettings)
+
+        ghost_camera.detectCameras((address, cameraId, cameraModel) => {
+            console.log(`Hello from camera  ${cameraId} ${cameraModel} at ${address}`);
+            insertCamera({
+                id: cameraId,
+                ip: address,
+                type: 'drift',
+                model: cameraModel,
+                control: ghost_camera,
+                rssi: 0,
+                uptime: 0,
+                camera_port: 80,
+                stream_port: 80,
+                url: `http://${address}`,
+                stream: `rtsp://${address}}`,
+            })
+        })
 
         app.debug('Plugin started')
     }

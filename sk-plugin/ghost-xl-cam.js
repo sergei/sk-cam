@@ -27,19 +27,24 @@ function sendCommand(command, socket) {
     socket.write(s)
 }
 
-function downloadPicture(socket, cameraDosPath, localPath) {
+function downloadPicture(socket, cameraDosPath, localPath, onCaptured) {
     const t = cameraDosPath.split('//');
     const cameraUnixPath = t[1] + '/' + t[2] + '/' + t[3]
     const url = `http://${socket.remoteAddress}/${cameraUnixPath}`
     console.log(`Requesting ${url} to ${localPath} ...`)
     request.head(url, function (err, res, body) {
         request(url).pipe(fs.createWriteStream(localPath)).on('close', function () {
-            console.log(`Received ${localPath} from ${url}`)
+            if ( !err ) {
+                console.log(`Received ${localPath} from ${url}`)
+            }else{
+                console.log(`Failed to download ${localPath} from ${url}`)
+            }
+            onCaptured(cameraUnixPath, err)
         })
     });
 }
 
-function processResponse(msg, socket, fileName) {
+function processResponse(msg, socket, fileName, onCaptureEnd) {
     console.log(`Received message ID ${msg.msg_id}`)
 
     switch(msg.msg_id){
@@ -47,27 +52,32 @@ function processResponse(msg, socket, fileName) {
             if (msg.rval === 0) {
                 sessionToken = msg.param
                 console.log(`Started session ${sessionToken}`)
-                console.log(`Taking  photo ...`)
-                sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
+                // Set capture mode ( "1" = photo)
+                sendCommand({msg_id: 2, param: "1", token: sessionToken, type: 'capture_mode' }, socket)
             } else {
                 console.log(`Failed to start session`)
+                // FIXME do something
             }
             break;
-        case 258:  // Session ended
+        case 2:  // Settings results
             if (msg.rval === 0) {
-                console.log(`Stopped session ${sessionToken}`)
+                if(msg.type === "capture_mode"){
+                    // Set photo resolution ( "2" - 4MB)
+                    sendCommand({msg_id: 2, param: "2", token: sessionToken, type: 'photo_size' }, socket)
+                }else{
+                    console.log(`Taking  photo ...`)
+                    sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
+                }
             } else {
-                console.log(`Failed to stop session`)
+                console.log(`Failed to set photo resolution`)
+                sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
             }
-            console.log('Closing socket')
-            socket.destroy()
             break;
         case 769:  // Photo results
             if (msg.rval !== 0) {
                 console.log(`Failed to take picture, try it again`)  // FIXME set maximum number of tries
                 // Try again
                 sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
-                // sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
             }
             break;
         case 7: // Notification
@@ -79,16 +89,37 @@ function processResponse(msg, socket, fileName) {
                     sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
                     break;
                 case "photo_complete":
-                    sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
-                    downloadPicture(socket, msg.param, fileName)
+                    downloadPicture(socket, msg.param, fileName, (cameraUnixPath, err) => {
+                        onCaptureEnd(err)
+                        if ( !err ){
+                            // Delete captured file on camera
+                            const fname = '/tmp/SD0/' + cameraUnixPath
+                            sendCommand({msg_id: 1281, token: sessionToken, param: fname}, socket) // Delete file
+                        }else{
+                            sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+                        }
+                    })
                     break;
             }
+            break;
+        case 1281:  // Delete result
+            sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+            break;
+        case 258:  // Session ended
+            if (msg.rval === 0) {
+                console.log(`Stopped session ${sessionToken}`)
+            } else {
+                console.log(`Failed to stop session`)
+            }
+            console.log('Closing socket')
+            socket.destroy()
             break;
     }
 
 }
 
-function captureJpeg (ipAddr, fileName) {
+function captureJpeg (camera, fileName, onCaptureEnd) {
+    const ipAddr = camera.ip
     console.log(`Capturing from ${ipAddr}`)
 
     const socket = net.Socket();
@@ -100,19 +131,28 @@ function captureJpeg (ipAddr, fileName) {
         sendCommand({token: 0, msg_id: 257}, socket) // Start session
     })
 
+    socket.on('error', () =>{
+        console.log(`${ipAddr}: socket error `)
+        onCaptureEnd('socket error')
+    })
+
+    socket.on('timeout', () =>{
+        console.log(`${ipAddr}: socket timeout `)
+        onCaptureEnd('socket timeout')
+    })
+
     socket.on('data', function (chunk) {
         console.log(`Received ${chunk}`)
         rcvdString += chunk
         rcvdString = rcvdString.replace(/\\/g, '/')
         if ( IsJsonString(rcvdString) ){
             const msg = JSON.parse(rcvdString);
-            processResponse(msg, socket, fileName);
+            processResponse(msg, socket, fileName, onCaptureEnd);
             rcvdString = ""
         }
     })
 
 }
-
 
 function detectCameras(cb){
     const server = dgram.createSocket('udp4');
@@ -127,13 +167,11 @@ function detectCameras(cb){
         const t = msg.toString('utf8').split('|')
         if (t[0] === '5') {
             const cameraId = t[1]
-            const model= t [2]
-            server.close()
+            const model= t[2]
             cb(rinfo.address, cameraId, model)
         }else{
             console.log('Ignore rogue UDP packet')
         }
-
     });
 
     server.on('listening', () => {
@@ -144,12 +182,18 @@ function detectCameras(cb){
     server.bind(DRIFT_BCAST_UDP_PORT);
 }
 
-module.exports = {
-    captureJpeg: captureJpeg,
+function configureCamera(camera, cameraSettings) {
+// Not much to configure for now. All configuration is done before taking the picture
 }
 
-detectCameras( (address, cameraId, cameraModel) => {
-    console.log(`Detected camera  ${cameraId}-${cameraModel} at ${address}`);
-    captureJpeg(address, '/tmp/pict.jpg')
-})
+module.exports = {
+    captureJpeg: captureJpeg,
+    detectCameras: detectCameras,
+    configureCamera: configureCamera,
+}
 
+// detectCameras( (address, cameraId, cameraModel) => {
+//     console.log(`Detected camera  ${cameraId}-${cameraModel} at ${address}`);
+//     captureJpeg({ip: address}, '/tmp/pict.jpg', () =>{
+//     })
+// })

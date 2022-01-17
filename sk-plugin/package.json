@@ -1,7 +1,7 @@
 {
   "name": "sk-cam",
-  "version": "1.0.1",
-  "description": "ESP32 CAM support",
+  "version": "1.0.2",
+  "description": "SK CAM plugin",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
