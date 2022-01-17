@@ -5,6 +5,14 @@ const dgram = require('dgram');
 
 const DRIFT_BCAST_UDP_PORT = 5555;  // Drift camera broadcasts its serial number on this UDP port
 
+// RPC protocol message IDs
+const MSG_ID_SESSION_START = 257;
+const MSG_ID_SESSION_STOP = 258;
+const MSG_ID_SETTINGS = 2;
+const MSG_ID_TAKE_PHOTO = 769;
+const MSG_ID_NOTIFICATION = 7;
+const MSG_ID_DELETE = 1281;
+
 function IsJsonString(str) {
     try {
         JSON.parse(str);
@@ -27,6 +35,7 @@ function sendCommand(command, socket) {
     socket.write(s)
 }
 
+
 function downloadPicture(socket, cameraDosPath, localPath, onCaptured) {
     const t = cameraDosPath.split('//');
     const cameraUnixPath = t[1] + '/' + t[2] + '/' + t[3]
@@ -44,49 +53,50 @@ function downloadPicture(socket, cameraDosPath, localPath, onCaptured) {
     });
 }
 
+
 function processResponse(msg, socket, fileName, onCaptureEnd) {
     console.log(`Received message ID ${msg.msg_id}`)
 
     switch(msg.msg_id){
-        case 257:  // Session started (or not)
+        case MSG_ID_SESSION_START:  // Session started (or not)
             if (msg.rval === 0) {
                 sessionToken = msg.param
                 console.log(`Started session ${sessionToken}`)
                 // Set capture mode ( "1" = photo)
-                sendCommand({msg_id: 2, param: "1", token: sessionToken, type: 'capture_mode' }, socket)
+                sendCommand({msg_id: MSG_ID_SETTINGS, param: "1", token: sessionToken, type: 'capture_mode' }, socket)
             } else {
                 console.log(`Failed to start session`)
-                // FIXME do something
+                onCaptureEnd("Failed to start session")
             }
             break;
-        case 2:  // Settings results
+        case MSG_ID_SETTINGS:  // Settings results
             if (msg.rval === 0) {
                 if(msg.type === "capture_mode"){
                     // Set photo resolution ( "2" - 4MB)
-                    sendCommand({msg_id: 2, param: "2", token: sessionToken, type: 'photo_size' }, socket)
+                    sendCommand({msg_id: MSG_ID_SETTINGS, param: "2", token: sessionToken, type: 'photo_size' }, socket)
                 }else{
                     console.log(`Taking  photo ...`)
-                    sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
+                    sendCommand({msg_id: MSG_ID_TAKE_PHOTO, token: sessionToken}, socket) // Take photo
                 }
             } else {
                 console.log(`Failed to set photo resolution`)
-                sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+                sendCommand({msg_id: MSG_ID_SESSION_STOP, token: sessionToken}, socket) // Close the command session
             }
             break;
-        case 769:  // Photo results
+        case MSG_ID_TAKE_PHOTO:  // Photo results
             if (msg.rval !== 0) {
                 console.log(`Failed to take picture, try it again`)  // FIXME set maximum number of tries
                 // Try again
-                sendCommand({msg_id: 769, token: sessionToken}, socket) // Take photo
+                sendCommand({msg_id: MSG_ID_TAKE_PHOTO, token: sessionToken}, socket) // Take photo
             }
             break;
-        case 7: // Notification
+        case MSG_ID_NOTIFICATION: // Notification
             switch(msg.type){
                 case "start_photo":
                     break;
                 case "ignore_msg":
                     console.log(`Failed to take picture`)
-                    sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+                    sendCommand({msg_id: MSG_ID_SESSION_STOP, token: sessionToken}, socket) // Close the command session
                     break;
                 case "photo_complete":
                     downloadPicture(socket, msg.param, fileName, (cameraUnixPath, err) => {
@@ -94,18 +104,18 @@ function processResponse(msg, socket, fileName, onCaptureEnd) {
                         if ( !err ){
                             // Delete captured file on camera
                             const fname = '/tmp/SD0/' + cameraUnixPath
-                            sendCommand({msg_id: 1281, token: sessionToken, param: fname}, socket) // Delete file
+                            sendCommand({msg_id: MSG_ID_DELETE, token: sessionToken, param: fname}, socket) // Delete file
                         }else{
-                            sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+                            sendCommand({msg_id: MSG_ID_SESSION_STOP, token: sessionToken}, socket) // Close the command session
                         }
                     })
                     break;
             }
             break;
-        case 1281:  // Delete result
-            sendCommand({msg_id: 258, token: sessionToken}, socket) // Close the command session
+        case MSG_ID_DELETE:  // Delete result
+            sendCommand({msg_id: MSG_ID_SESSION_STOP, token: sessionToken}, socket) // Close the command session
             break;
-        case 258:  // Session ended
+        case MSG_ID_SESSION_STOP:  // Session ended
             if (msg.rval === 0) {
                 console.log(`Stopped session ${sessionToken}`)
             } else {
@@ -128,7 +138,8 @@ function captureJpeg (camera, fileName, onCaptureEnd) {
     socket.on('connect' , function () {
         // Send the initial message once connected
         console.log('Connected, sending start session')
-        sendCommand({token: 0, msg_id: 257}, socket) // Start session
+        // FIXME set guard timeout if no picture taken for any reason
+        sendCommand({token: 0, msg_id: MSG_ID_SESSION_START}, socket) // Start session
     })
 
     socket.on('error', () =>{
@@ -163,7 +174,6 @@ function detectCameras(cb){
     });
 
     server.on('message', (msg, rinfo) => {
-        console.log(`server got: ${msg} from ${rinfo.address}:${rinfo.port}`);
         const t = msg.toString('utf8').split('|')
         if (t[0] === '5') {
             const cameraId = t[1]

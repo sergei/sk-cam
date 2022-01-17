@@ -109,10 +109,9 @@ module.exports = function (app) {
         app.debug('takeCameraSnapshot')
 
         let camerasRemaining = Object.keys(cameras).length;
-
         const filePrefix = `cam-${moment().format('YYYY-MM-DD-HH-mm-ss')}`
 
-        snapshots = []
+        const snapshots = []
 
         if ( camerasRemaining === 0 ) {
             updateSnapshotsDelta(filePrefix, snapshots)
@@ -120,10 +119,6 @@ module.exports = function (app) {
 
         Object.keys(cameras).forEach((cam_id) => {
             const camera = cameras[cam_id]
-            if (cameras[cam_id].snapshotInProgress ){
-                console.log(`Snapshot for ${cam_id} is already in progress ...`)
-            }else{
-                cameras[cam_id].snapshotInProgress = true
                 const base_name = `${filePrefix}_${camera.id}.jpg`
                 const filename = `${pluginOptions.pictures_dir}/${base_name}`
 
@@ -147,8 +142,6 @@ module.exports = function (app) {
                         updateSnapshotsDelta(filePrefix, snapshots)
                     }
                 })
-                cameras[cam_id].snapshotInProgress = false
-            }
         })
     }
 
@@ -331,7 +324,6 @@ module.exports = function (app) {
             cameras[camera.id] = camera
             app.debug('Got camera update', cameras);
             camera.control.configureCamera(app, camera, cameraSettings)
-            camera.snapshotInProgress  = false
         }
         postCamerasInfo()
     }
