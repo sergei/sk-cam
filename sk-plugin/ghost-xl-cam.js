@@ -2,6 +2,7 @@ const net = require('net');
 const request = require("request");
 const fs = require("fs");
 const dgram = require('dgram');
+const StreamValues = require('stream-json/streamers/StreamValues');
 
 const DRIFT_BCAST_UDP_PORT = 5555;  // Drift camera broadcasts its serial number on this UDP port
 
@@ -13,23 +14,11 @@ const MSG_ID_TAKE_PHOTO = 769;
 const MSG_ID_NOTIFICATION = 7;
 const MSG_ID_DELETE = 1281;
 
-function IsJsonString(str) {
-    try {
-        JSON.parse(str);
-    } catch (e) {
-        console.log(`Not valid: ${str}`)
-        return false;
-    }
-    return true;
-}
-
 let cmdId = null
 let sessionToken = null
-let rcvdString = null
 
 function sendCommand(command, socket) {
     cmdId = command.msg_id
-    rcvdString = ""
     const s = JSON.stringify(command);
     console.log(`Sending ${s}`)
     socket.write(s)
@@ -131,6 +120,15 @@ function processResponse(msg, socket, fileName, onCaptureEnd) {
 function captureJpeg (camera, fileName, onCaptureEnd) {
     const ipAddr = camera.ip
     console.log(`Capturing from ${ipAddr}`)
+    const jsonParser = StreamValues.withParser();
+
+    const captureTimeout = setTimeout(() => {
+        console.log('Capture timeout expired');
+        if( !socket.destroyed){
+            socket.destroy()
+        }
+        onCaptureEnd('Capture timeout expired')
+    }, 5000);
 
     const socket = net.Socket();
     socket.connect(7878, ipAddr);
@@ -138,31 +136,43 @@ function captureJpeg (camera, fileName, onCaptureEnd) {
     socket.on('connect' , function () {
         // Send the initial message once connected
         console.log('Connected, sending start session')
-        // FIXME set guard timeout if no picture taken for any reason
         sendCommand({token: 0, msg_id: MSG_ID_SESSION_START}, socket) // Start session
     })
 
+    // Parse incoming data
+    // Receive TCP chunks and feed them to the JSON parser
+    socket.on('data', function (chunk) {
+        console.log(`Received ${chunk}`)
+        chunk = chunk.toString().replace(/\\/g, '/')  // Somehow JSON doesn't like \
+        jsonParser.write(chunk)
+    })
+
+    // On received JSON object
+    jsonParser.on('data', (data) => {
+        processResponse(data.value, socket, fileName, (err) => {
+            clearTimeout(captureTimeout)
+            onCaptureEnd(err)
+        });
+    })
+
+    // Error handling
     socket.on('error', () =>{
-        console.log(`${ipAddr}: socket error `)
+        console.error(`${ipAddr}: socket error `)
+        clearTimeout(captureTimeout)
         onCaptureEnd('socket error')
     })
 
     socket.on('timeout', () =>{
-        console.log(`${ipAddr}: socket timeout `)
+        console.error(`${ipAddr}: socket timeout `)
+        clearTimeout(captureTimeout)
         onCaptureEnd('socket timeout')
     })
 
-    socket.on('data', function (chunk) {
-        console.log(`Received ${chunk}`)
-        rcvdString += chunk
-        rcvdString = rcvdString.replace(/\\/g, '/')
-        if ( IsJsonString(rcvdString) ){
-            const msg = JSON.parse(rcvdString);
-            processResponse(msg, socket, fileName, onCaptureEnd);
-            rcvdString = ""
-        }
+    jsonParser.on('error', (err) => {
+        console.error(err)
+        clearTimeout(captureTimeout)
+        onCaptureEnd('socket error')
     })
-
 }
 
 function detectCameras(cb){

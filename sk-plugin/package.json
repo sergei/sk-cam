@@ -24,6 +24,7 @@
     "@aws-sdk/client-s3": "^3.27.0",
     "glob": "^7.1.7",
     "moment": "^2.29.1",
-    "request": "^2.88.2"
+    "request": "^2.88.2",
+    "stream-json": "^1.7.3"
   }
 }
